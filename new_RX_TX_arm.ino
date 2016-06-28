@@ -1,8 +1,8 @@
 #include <Arduino.h>
-
-
 #include <Modbus.h>
 #include <ModbusSerial.h>
+
+#define DEBUG
 
 // Define the Modbus HOLD_REGISTER Mapping
 enum StateHoldRegister {
@@ -64,31 +64,45 @@ enum ArmModeCMD {
 	CMD_FREE_CONTROLL
 };
 
-const byte motor_1_id = 1;
-const byte motor_2_id = 2;
 
-// Modbus object
+/**************** The I/O Pin Define ********************/
+
+#define MOTOR_LEFT_ARM1_ID 					(1)
+#define MOTOR_LEFT_ARM2_ID 					(2)
+
+#define LEFT_SLIDER_STOP_SIGNAL_E		(22)
+#define LEFT_SLIDER_STOP_SIGNAL_S		(24)
+#define LEFT_SLIDER_STEPPER_EN  		(26)
+#define LEFT_SLIDER_STEPPER_CW  		(28)
+#define LEFT_SLIDER_STEPPER_CLK  		(30)
+
+#define RIGHT_SLIDER_STOP_SIGNAL_E	(23)
+#define RIGHT_SLIDER_STOP_SIGNAL_S	(25)
+#define RIGHT_SLIDER_STEPPER_EN			(27)
+#define RIGHT_SLIDER_STEPPER_CW			(29)
+#define RIGHT_SLIDER_STEPPER_CLK		(31)
+
+/********************************************************/
+
+// The clk count used to push the slider via Stepper Motor at 16 step mode
+#define ref_count 								(120000)
+
+// Modbus context object
 ModbusSerial mb;
 
-uint16_t input_motor1_degree			= 0;
-uint16_t input_motor2_degree			= 0;
-uint16_t input_slider_state				= 0;
-uint16_t input_arm_mode					= 0;
+uint16_t input_motor1_degree				= 0;
+uint16_t input_motor2_degree				= 0;
+uint16_t input_slider_state					= 0;
+uint16_t input_arm_mode							= 0;
 uint16_t input_effort_catch_level		= 0;
 
-uint16_t output_motor1_degree			= 0;
-uint16_t output_motor2_degree			= 0;
-uint16_t output_slider_state			= 0;
-uint16_t output_arm_mode				= 0;
-uint16_t output_effort_catch_level		= 0;
+uint16_t output_motor1_degree				= 0;
+uint16_t output_motor2_degree				= 0;
+uint16_t output_slider_state				= 0;
+uint16_t output_arm_mode						= 0;
+uint16_t output_effort_catch_level	= 0;
 
 long int time = 0;
-
-const int Enable_Stepper_motor = 6;
-const int Select_Rotation_Direction = 7;
-const int Rotation_Times = 8;
-
-const long int ref_count = 120000;
 long int count = 0;
 
 void setup()
@@ -99,6 +113,7 @@ void setup()
 	// Config Slave ID
 	mb.setSlaveId(5);
 
+	// Setup the DEBUG tunnel via serial0(USB port)
 	Serial.begin(115200);
 
 	// Add the mapping register to specifid Register
@@ -124,75 +139,113 @@ void setup()
 	mb.Hreg(CMD_ARM_MODE, ArmModeCMD::CMD_HOME);
 
 
+
 	// For AI Motor communication
 	Serial1.begin(1000000);
 
-	// Setup for 7-SEG Display
-	DDRA |= 0x0F;
+	// Setup stepper motor pin
+	pinMode(LEFT_SLIDER_STEPPER_EN, OUTPUT);
+	pinMode(LEFT_SLIDER_STEPPER_CW, OUTPUT);
+	pinMode(LEFT_SLIDER_STEPPER_CLK, OUTPUT);
 
-	// stepper motor pin
-	pinMode(Enable_Stepper_motor, OUTPUT);
-	pinMode(Select_Rotation_Direction, OUTPUT);
-	pinMode(Rotation_Times, OUTPUT);
+	pinMode(RIGHT_SLIDER_STEPPER_EN, OUTPUT);
+	pinMode(RIGHT_SLIDER_STEPPER_CW, OUTPUT);
+	pinMode(RIGHT_SLIDER_STEPPER_CLK, OUTPUT);
+
+	// Setup the Limit Switch
+	pinMode(LEFT_SLIDER_STOP_SIGNAL_E, INPUT);
+	pinMode(LEFT_SLIDER_STOP_SIGNAL_S, INPUT);
+	pinMode(RIGHT_SLIDER_STOP_SIGNAL_E, INPUT);
+	pinMode(RIGHT_SLIDER_STOP_SIGNAL_S, INPUT);
+
+	// Enable stepper motor
+	digitalWrite(LEFT_SLIDER_STEPPER_EN, LOW);
 
 }
 
 void loop()
 {
+
+	// Show the current time via Serial port
 	Serial.println(micros() - time);
+	// Get the current time
 	time = micros();
+
+	/********** Update the register and sync ************/
+
+	// Note : the sync modbus task will be trigger via Serial3 interrupt
 
 
 	//Logic Loop
-	input_motor1_degree			= mb.Hreg(StateHoldRegister::CMD_LEFT_MOTOR1_DEGREE);
-	input_motor2_degree			= mb.Hreg(StateHoldRegister::CMD_LEFT_MOTOR2_DEGREE);
-	input_slider_state			= mb.Hreg(StateHoldRegister::CMD_SLIDER_STATE);
-	input_arm_mode				= mb.Hreg(StateHoldRegister::CMD_ARM_MODE);
+	input_motor1_degree				= mb.Hreg(StateHoldRegister::CMD_LEFT_MOTOR1_DEGREE);
+	input_motor2_degree				= mb.Hreg(StateHoldRegister::CMD_LEFT_MOTOR2_DEGREE);
+	input_slider_state				= mb.Hreg(StateHoldRegister::CMD_SLIDER_STATE);
+	input_arm_mode						= mb.Hreg(StateHoldRegister::CMD_ARM_MODE);
 	input_effort_catch_level	= mb.Hreg(StateHoldRegister::EFFORT_CATCH_LEVEL);
 
-	output_motor1_degree		= mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE);
-	output_motor2_degree		= mb.Hreg(StateHoldRegister::LEFT_MOTOR2_DEGREE);
-	output_slider_state			= mb.Hreg(StateHoldRegister::SLIDER_STATE);
-	output_arm_mode				= mb.Hreg(StateHoldRegister::ARM_MODE);
+	output_motor1_degree			= mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE);
+	output_motor2_degree			= mb.Hreg(StateHoldRegister::LEFT_MOTOR2_DEGREE);
+	output_slider_state				= mb.Hreg(StateHoldRegister::SLIDER_STATE);
+	output_arm_mode						= mb.Hreg(StateHoldRegister::ARM_MODE);
 	output_effort_catch_level	= mb.Hreg(StateHoldRegister::EFFORT_CATCH_LEVEL);
 
-	PORTA = output_arm_mode;
+	/****************************************************/
 
-	// enable stepper motor
-	digitalWrite(Enable_Stepper_motor, LOW);
-
+	// Slider is home OR opening
+	// ARM is home
+	// Effot catch level is 0
+	// Then Slide OPEN Valid
 	if ((output_slider_state == SliderState::HOME || output_slider_state == SliderState::OPENING) &&
 		output_arm_mode == ArmMode::ARM_HOME &&
 		output_effort_catch_level == 0 &&
 		input_slider_state == SliderStateCMD::OPEN) {
 
-			digitalWrite(Select_Rotation_Direction, LOW);
+			// Setup the stepper CCW mode
+			digitalWrite(LEFT_SLIDER_STEPPER_CW, LOW);
+			digitalWrite(RIGHT_SLIDER_STEPPER_CW, LOW);
 
-			if (count < ref_count) {
+			// If left slider limit switch is trigger, then STOP left lisder opening
+			if( digitalRead(LEFT_SLIDER_STOP_SIGNAL_E) != 1) {
 
-				digitalWrite(Rotation_Times, HIGH);
-				digitalWrite(Rotation_Times, HIGH);
-				digitalWrite(Rotation_Times, HIGH);
-				digitalWrite(Rotation_Times, HIGH);
-				digitalWrite(Rotation_Times, LOW);
+				digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(LEFT_SLIDER_STEPPER_CLK, LOW);
 
-				count++;
-				output_slider_state = SliderState::OPENING;
 			}
 
-			if (count == ref_count) {
+			// If right slider limit switch is trigger, then STOP right lisder opening
+			if( digitalRead(RIGHT_SLIDER_STOP_SIGNAL_E) != 1) {
+
+				digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+				digitalWrite(RIGHT_SLIDER_STEPPER_CLK, LOW);
+
+			}
+
+			// If all Limit switch is triggered.
+			// Then Slider status switch to OPENED
+			if (digitalRead(LEFT_SLIDER_STOP_SIGNAL_E) == 1 &&
+			 		digitalRead(RIGHT_SLIDER_STOP_SIGNAL_E) == 1) {
 
 				output_slider_state = SliderState::OPENED;
 			}
 
+			// Write the slider state to the register
 			mb.Hreg(StateHoldRegister::SLIDER_STATE, output_slider_state );
 	}
 
+
+	// Slider is opened
+	// Then ARM HOME CMD Valid
 	if (output_slider_state == SliderState::OPENED &&
 		input_arm_mode == ArmModeCMD::CMD_HOME) {
 
-			AX12_POS(motor_1_id, 512);
-			AX12_POS(motor_2_id, 512 - 307);
+			AX12_POS(MOTOR_LEFT_ARM1_ID, 512);
+			AX12_POS(MOTOR_LEFT_ARM2_ID, 512 - 307);
 
 			output_motor1_degree = 512;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
@@ -204,11 +257,13 @@ void loop()
 			mb.Hreg(StateHoldRegister::ARM_MODE, output_arm_mode );
 	}
 
+	// Slider is opened
+	// Then ARM BUTTON POSE CMD Valid
 	if (output_slider_state == SliderState::OPENED &&
 		input_arm_mode == ArmModeCMD::CMD_BUTTON_POSE ) {
 
-			AX12_POS(motor_1_id, 512 + 307);
-			AX12_POS(motor_2_id, 512 + 307);
+			AX12_POS(MOTOR_LEFT_ARM1_ID, 512 + 307);
+			AX12_POS(MOTOR_LEFT_ARM2_ID, 512 + 307);
 
 			output_motor1_degree = 512 + 307;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
@@ -220,11 +275,13 @@ void loop()
 			mb.Hreg(StateHoldRegister::ARM_MODE, output_arm_mode );
 	}
 
+  // Slider is opened
+	// Then ARM FREE CONTROLL CMD Valid
 	if (output_slider_state == SliderState::OPENED &&
 		input_arm_mode == ArmModeCMD::CMD_FREE_CONTROLL) {
 
-			AX12_POS(motor_1_id, input_motor1_degree);
-			AX12_POS(motor_2_id, input_motor2_degree);
+			AX12_POS(MOTOR_LEFT_ARM1_ID, input_motor1_degree);
+			AX12_POS(MOTOR_LEFT_ARM2_ID, input_motor2_degree);
 
 			output_motor1_degree = input_motor1_degree;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
@@ -239,31 +296,50 @@ void loop()
 			mb.Hreg(StateHoldRegister::EFFORT_CATCH_LEVEL, output_effort_catch_level );
 	}
 
+	// ARM is HOME
+	// Effort catch level is 0
+	// Slider is closing OR opened
+	// Then Slider CLOSE CMD Valid
 	if (output_arm_mode == ArmMode::ARM_HOME &&
 		output_effort_catch_level == 0 &&
 		(output_slider_state == SliderState::RETURNING || output_slider_state == SliderState::OPENED) &&
 		input_slider_state == SliderStateCMD::CLOSE) {
 
-		digitalWrite(Select_Rotation_Direction, HIGH);
+		// Setup the stepper CW mode
+		digitalWrite(LEFT_SLIDER_STEPPER_CW, HIGH);
+		digitalWrite(RIGHT_SLIDER_STEPPER_CW, HIGH);
 
-		if (count > 0) {
+		// If left slider limit switch is trigger, then STOP left slider closing
+		if( digitalRead(LEFT_SLIDER_STOP_SIGNAL_S) != 1) {
 
-			digitalWrite(Rotation_Times, HIGH);
-			digitalWrite(Rotation_Times, HIGH);
-			digitalWrite(Rotation_Times, HIGH);
-			digitalWrite(Rotation_Times, HIGH);
-			digitalWrite(Rotation_Times, LOW);
+			digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(LEFT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(LEFT_SLIDER_STEPPER_CLK, LOW);
 
-			count--;
-
-			output_slider_state = SliderState::RETURNING;
 		}
 
-		if (count == 0) {
+		// If right slider limit switch is trigger, then STOP right slider closing
+		if( digitalRead(RIGHT_SLIDER_STOP_SIGNAL_S) != 1) {
+
+			digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(RIGHT_SLIDER_STEPPER_CLK, HIGH);
+			digitalWrite(RIGHT_SLIDER_STEPPER_CLK, LOW);
+
+		}
+
+		// If all Limit switch is triggered.
+		// Then Slider status switch to HOME
+		if (digitalRead(LEFT_SLIDER_STOP_SIGNAL_S) == 1 &&
+				digitalRead(RIGHT_SLIDER_STOP_SIGNAL_S) == 1) {
 
 			output_slider_state = SliderState::HOME;
 		}
 
+		// Write the slider state to the register
 		mb.Hreg(StateHoldRegister::SLIDER_STATE, output_slider_state);
 	}
 }
@@ -282,8 +358,8 @@ void AX12_POS(int id, int data)
 	AX12_OUT[8] = ~(byte(sum));
 	for (int i = 0; i < 9; i++)
 	{
-		Serial1.write(AX12_OUT[i]); //send a content
-		//delay(5); //delay 5 ms
+		//send a content
+		Serial1.write(AX12_OUT[i]);
 	}
 
 #ifdef DEBUG
@@ -297,6 +373,8 @@ void AX12_POS(int id, int data)
 #endif // DEBUG
 }
 
+
+// Trigger Modbus when Serial3 interrupt
 void serialEvent3() {
 	// Do modbus tesk : Receive and reply
 	mb.task();
