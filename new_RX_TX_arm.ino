@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 
 #include <Modbus.h>
 #include <ModbusSerial.h>
@@ -139,7 +141,7 @@ void loop()
 {
 	Serial.println(micros() - time);
 	time = micros();
-	
+
 
 	//Logic Loop
 	input_motor1_degree			= mb.Hreg(StateHoldRegister::CMD_LEFT_MOTOR1_DEGREE);
@@ -156,16 +158,16 @@ void loop()
 
 	PORTA = output_arm_mode;
 
-	// enable stepper motor 
+	// enable stepper motor
 	digitalWrite(Enable_Stepper_motor, LOW);
 
 	if ((output_slider_state == SliderState::HOME || output_slider_state == SliderState::OPENING) &&
 		output_arm_mode == ArmMode::ARM_HOME &&
 		output_effort_catch_level == 0 &&
 		input_slider_state == SliderStateCMD::OPEN) {
-	
+
 			digitalWrite(Select_Rotation_Direction, LOW);
-			
+
 			if (count < ref_count) {
 
 				digitalWrite(Rotation_Times, HIGH);
@@ -177,12 +179,12 @@ void loop()
 				count++;
 				output_slider_state = SliderState::OPENING;
 			}
-			
+
 			if (count == ref_count) {
-			
+
 				output_slider_state = SliderState::OPENED;
 			}
-		
+
 			mb.Hreg(StateHoldRegister::SLIDER_STATE, output_slider_state );
 	}
 
@@ -191,7 +193,7 @@ void loop()
 
 			AX12_POS(motor_1_id, 512);
 			AX12_POS(motor_2_id, 512 - 307);
-			
+
 			output_motor1_degree = 512;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
 
@@ -204,10 +206,10 @@ void loop()
 
 	if (output_slider_state == SliderState::OPENED &&
 		input_arm_mode == ArmModeCMD::CMD_BUTTON_POSE ) {
-		
+
 			AX12_POS(motor_1_id, 512 + 307);
 			AX12_POS(motor_2_id, 512 + 307);
-			
+
 			output_motor1_degree = 512 + 307;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
 
@@ -223,7 +225,7 @@ void loop()
 
 			AX12_POS(motor_1_id, input_motor1_degree);
 			AX12_POS(motor_2_id, input_motor2_degree);
-			
+
 			output_motor1_degree = input_motor1_degree;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
 
@@ -268,15 +270,15 @@ void loop()
 
 void AX12_POS(int id, int data)
 {
-	
+
 	int sum = 0;
-	//¦ì¸m¥\¯à FF FF ID 05 03 1e data1 data2 °»¿ù½X
-	//°»¿ù½X=not(id_2 + 5 + 3 + 1e + data1 + data2)
+	//ï¿½ï¿½ï¿½mï¿½\ï¿½ï¿½ FF FF ID 05 03 1e data1 data2 ï¿½ï¿½ï¿½ï¿½ï¿½X
+	//ï¿½ï¿½ï¿½ï¿½ï¿½X=not(id_2 + 5 + 3 + 1e + data1 + data2)
 	byte AX12_OUT[9] = { 0xff,0xff,0x01,0x05,0x03,0x1e,0x00,0x00,0xd2 };
-	sum = id + 5 + 3 + 30 + (data / 256) + (data % 256);//­pºâ°»¿ù½X
+	sum = id + 5 + 3 + 30 + (data / 256) + (data % 256);//ï¿½pï¿½â°»ï¿½ï¿½ï¿½X
 	AX12_OUT[2] = byte(id);
-	AX12_OUT[6] = byte(data % 256); //§ï¼g§C¦ì¤¸¸ê®Æ¦ê
-	AX12_OUT[7] = byte(data / 256); //§ï¼g°ª¦ì¤¸¸ê®Æ¦ê
+	AX12_OUT[6] = byte(data % 256); //ï¿½ï¿½ï¿½gï¿½Cï¿½ì¤¸ï¿½ï¿½ï¿½Æ¦ï¿½
+	AX12_OUT[7] = byte(data / 256); //ï¿½ï¿½ï¿½gï¿½ï¿½ï¿½ì¤¸ï¿½ï¿½ï¿½Æ¦ï¿½
 	AX12_OUT[8] = ~(byte(sum));
 	for (int i = 0; i < 9; i++)
 	{
@@ -299,5 +301,3 @@ void serialEvent3() {
 	// Do modbus tesk : Receive and reply
 	mb.task();
 }
-
-
