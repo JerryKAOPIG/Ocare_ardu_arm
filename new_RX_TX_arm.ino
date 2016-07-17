@@ -1,9 +1,13 @@
 #include <Arduino.h>
-#include <Modbus.h>
-#include <ModbusSerial.h>
 #include <Servo.h>
 
+#include <Modbus.h>
+#include <ModbusSerial.h>
+
+
 //#define DEBUG
+
+#define MB_SLAVER_ID_		(4)
 
 // Define the Modbus HOLD_REGISTER Mapping
 enum StateHoldRegister {
@@ -84,8 +88,7 @@ enum ArmModeCMD {
 #define SLIDER_RIGHT_STEPPER_CLK		(48)
 
 #define LEFT_CATCH_SERVO						(13)
-
-/********************************************************/
+/*******************************************************/
 
 /********************** Config *************************/
 
@@ -158,6 +161,11 @@ void modbus_sync();
 
 void setup()
 {
+	/* Setup the ModbusSerial */
+	init_modbus();
+
+	/* Setup the pin I/O mode */
+	init_pin();
 
 	// Setup the DEBUG tunnel via serial0(USB port)
 	Serial.begin(115200);
@@ -165,11 +173,9 @@ void setup()
 	// For AI Motor communication
 	Serial1.begin(1000000);
 
-	/* Setup the pin I/O mode */
-	init_pin();
 
-	/* Setup the ModbusSerial */
-	init_modbus();
+
+
 
 }
 
@@ -177,7 +183,7 @@ void loop()
 {
 
 	// Show the current time via Serial port
-	Serial.println(micros() - time);
+	//Serial.println(micros() - time);
 	// Get the current time
 	time = micros();
 
@@ -370,19 +376,20 @@ void init_modbus(){
 
 	// Config Mosbus Serial
 	mb.config(&Serial3, 115200, SERIAL_8N2);
+
 	// Config Slave ID
-	mb.setSlaveId(5);
+	mb.setSlaveId(MB_SLAVER_ID_);
 
 	// Add the mapping register to specifid Register
-	mb.addHreg(LEFT_MOTOR1_DEGREE);
-	mb.addHreg(LEFT_MOTOR2_DEGREE);
-	mb.addHreg(SLIDER_STATE);
-	mb.addHreg(ARM_MODE);
-	mb.addHreg(EFFORT_CATCH_LEVEL);
-	mb.addHreg(CMD_LEFT_MOTOR1_DEGREE);
-	mb.addHreg(CMD_LEFT_MOTOR2_DEGREE);
-	mb.addHreg(CMD_SLIDER_STATE);
-	mb.addHreg(CMD_ARM_MODE);
+	mb.addHreg(StateHoldRegister::LEFT_MOTOR1_DEGREE);
+	mb.addHreg(StateHoldRegister::LEFT_MOTOR2_DEGREE);
+	mb.addHreg(StateHoldRegister::SLIDER_STATE);
+	mb.addHreg(StateHoldRegister::ARM_MODE);
+	mb.addHreg(StateHoldRegister::EFFORT_CATCH_LEVEL);
+	mb.addHreg(StateHoldRegister::CMD_LEFT_MOTOR1_DEGREE);
+	mb.addHreg(StateHoldRegister::CMD_LEFT_MOTOR2_DEGREE);
+	mb.addHreg(StateHoldRegister::CMD_ARM_MODE);
+	mb.addHreg(StateHoldRegister::CMD_SLIDER_STATE);
 
 	// Initial the register
 	mb.Hreg(LEFT_MOTOR1_DEGREE, LEFT_MOTOR1_INIT_VALUE);
@@ -435,6 +442,9 @@ void init_pin() {
 
 void modbus_sync() {
 
+	// sync all state immediately
+	mb.task();
+
 	// Read all ModbusSerial mb context to global variable
 	input_motor1_degree				= mb.Hreg(StateHoldRegister::CMD_LEFT_MOTOR1_DEGREE);
 	input_motor2_degree				= mb.Hreg(StateHoldRegister::CMD_LEFT_MOTOR2_DEGREE);
@@ -481,8 +491,8 @@ void AX12_POS(int id, int data)
 }
 
 
-// Trigger Modbus when Serial3 interrupt
-void serialEvent3() {
-	// Do modbus tesk : Receive and reply
-	mb.task();
-}
+// // Trigger Modbus when Serial3 interrupt
+// void serialEvent3() {
+// 	// Do modbus tesk : Receive and reply
+// 	mb.task();
+// }
