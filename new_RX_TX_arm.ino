@@ -115,7 +115,7 @@ enum ArmModeCMD {
 #define RIGHT_MOTOR2_MIN_VALUE				(211)
 
 #define RIGHT_MOTOR1_BTN_POSE					(844)
-#define RIGHT_MOTOR2_BTN_POSE					(513)
+#define RIGHT_MOTOR2_BTN_POSE					(815)
 
 
 /*******************************************************/
