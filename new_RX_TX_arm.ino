@@ -257,6 +257,14 @@ void loop()
 			AX12_POS(MOTOR_RIGHT_ARM2_ID, RIGHT_MOTOR2_INIT_VALUE);
 			AX12_POS(MOTOR_RIGHT_ARM1_ID, RIGHT_MOTOR1_INIT_VALUE);
 
+			// Remapping the servo value
+			int servo_value(0);
+			servo_value = map(CATCH_SERVO_INIT_VALUE,
+				0,
+				100,
+				CATCH_SERVO_FULL_OPEN_VALUE,
+				CATCH_SERVO_FULL_CLOSE_VALUE);
+			right_catch_servo.write(servo_value);
 
 			output_motor1_degree = RIGHT_MOTOR1_INIT_VALUE;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
@@ -276,6 +284,14 @@ void loop()
 			AX12_POS(MOTOR_RIGHT_ARM2_ID, RIGHT_MOTOR2_BTN_POSE);
 			AX12_POS(MOTOR_RIGHT_ARM1_ID, RIGHT_MOTOR1_BTN_POSE);
 
+			// Remapping the servo value
+			int servo_value(0);
+			servo_value = map(CATCH_SERVO_INIT_VALUE,
+				0,
+				100,
+				CATCH_SERVO_FULL_OPEN_VALUE,
+				CATCH_SERVO_FULL_CLOSE_VALUE);
+			right_catch_servo.write(servo_value);
 
 			output_motor1_degree = RIGHT_MOTOR1_BTN_POSE;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
@@ -298,7 +314,7 @@ void loop()
 
 			// Remapping the servo value
 			int servo_value(0);
-			servo_value = map(CATCH_SERVO_INIT_VALUE,
+			servo_value = map(input_effort_catch_level,
 				0,
 				100,
 				CATCH_SERVO_FULL_OPEN_VALUE,
