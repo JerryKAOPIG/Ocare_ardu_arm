@@ -23,26 +23,43 @@ enum StateHoldRegister {
 };
 
 /******Defination of the Slider state
-* HOME :       Slider at Home position
-* OPENING:     Slider Opening now
-* OPENED:      Slider is Opened, the arm can work around now
-* RETURNING:   Slider is Returning to HOME now
-* **************************/
-enum SliderState {
-	HOME,
-	OPENING,
-	OPENED,
-	RETURNING
+ * SLIDER_HOME :       Slider at Home position
+ * SLIDER_OPENING:     Slider Opening now
+ * SLIDER_OPENED:      Slider is Opened, the arm can work around now
+ * SLIDER_RETURNING:   Slider is Returning to HOME now
+ * **************************/
+#define SLIDER_LEFT_STATE_MASK          (0x0f)
+#define SLIDER_LEFT_STATUS_BIT_SHIFT    (0)
+
+#define SLIDER_RIGHT_STATE_MASK         (0xf0)
+#define SLIDER_RIGHT_STATUS_BIT_SHIFT   (4)
+
+enum SliderState  {
+		SLIDER_L_HOME       = (1u << SLIDER_LEFT_STATUS_BIT_SHIFT),
+		SLIDER_L_OPENING    = (2u << SLIDER_LEFT_STATUS_BIT_SHIFT),
+		SLIDER_L_OPENED     = (3u << SLIDER_LEFT_STATUS_BIT_SHIFT),
+		SLIDER_L_RETURNING  = (4u << SLIDER_LEFT_STATUS_BIT_SHIFT),
+		SLIDER_R_HOME       = (1u << SLIDER_RIGHT_STATUS_BIT_SHIFT),
+		SLIDER_R_OPENING    = (2u << SLIDER_RIGHT_STATUS_BIT_SHIFT),
+		SLIDER_R_OPENED     = (3u << SLIDER_RIGHT_STATUS_BIT_SHIFT),
+		SLIDER_R_RETURNING  = (4u << SLIDER_RIGHT_STATUS_BIT_SHIFT)
 };
 
 /******Defination of the Slider Command
-* OPEN :           Open the slider to the right position
-* CLOSE:           Close the slider to the home position
-*
-* **************************/
-enum SliderStateCMD {
-	OPEN,
-	CLOSE
+ * SLIDER_[LR]O_CMD:   Open the slider to the right position
+ * SLIDER_[LR]C_CMD:   Close the slider to the home position
+ *
+ * **************************/
+#define SLIDER_LEFT_CMD_MASK        (0x0f)
+#define SLIDER_LEFT_CMD_BIT_SHIFT   (0)
+
+#define SLIDER_RIGHT_CMD_MASK  			(0xf0)
+#define SLIDER_RIGHT_CMD_BIT_SHIFT  (4)
+enum SliderStateCMD  {
+		SLIDER_LO_CMD = (1u << SLIDER_LEFT_CMD_BIT_SHIFT),
+		SLIDER_LC_CMD = (0u << SLIDER_LEFT_CMD_BIT_SHIFT),
+		SLIDER_RO_CMD = (1u << SLIDER_RIGHT_CMD_BIT_SHIFT),
+		SLIDER_RC_CMD = (0u << SLIDER_RIGHT_CMD_BIT_SHIFT)
 };
 
 /******Defination of the Arm Mode
@@ -74,6 +91,8 @@ enum ArmModeCMD {
 
 #define MOTOR_RIGHT_ARM1_ID 				(1)
 #define MOTOR_RIGHT_ARM2_ID 				(2)
+#define MOTOR_LEFT_ARM1_ID					(3)
+#define MOTOR_LEFT_ARM2_ID					(4)
 
 #define SLIDER_LEFT_STOP_SIGNAL_E		(47)
 #define SLIDER_LEFT_STOP_SIGNAL_S		(46)
@@ -92,8 +111,8 @@ enum ArmModeCMD {
 
 /********************** Config *************************/
 
-#define LEFT_MOTOR1_INIT_VALUE				(0)
-#define LEFT_MOTOR2_INIT_VALUE				(0)
+#define LEFT_MOTOR1_INIT_VALUE				(512)
+#define LEFT_MOTOR2_INIT_VALUE				(512)
 
 #define LEFT_MOTOR1_MAX_VALUE					(0)
 #define LEFT_MOTOR2_MAX_VALUE					(0)
@@ -128,13 +147,13 @@ ModbusSerial mb;
 
 uint16_t input_motor1_degree				= LEFT_MOTOR1_INIT_VALUE;
 uint16_t input_motor2_degree				= LEFT_MOTOR2_INIT_VALUE;
-uint16_t input_slider_state					= SliderStateCMD::CLOSE;
+uint16_t input_slider_state					= SLIDER_LC_CMD | SLIDER_RC_CMD;
 uint16_t input_arm_mode							= ArmModeCMD::CMD_HOME;
 uint16_t input_effort_catch_level		= CATCH_SERVO_INIT_VALUE;
 
 uint16_t output_motor1_degree				= LEFT_MOTOR1_INIT_VALUE;
 uint16_t output_motor2_degree				= LEFT_MOTOR2_INIT_VALUE;
-uint16_t output_slider_state				= SliderState::OPENED;
+uint16_t output_slider_state				= SLIDER_L_OPENED | SLIDER_R_OPENED;
 uint16_t output_arm_mode						= ArmMode::ARM_HOME;
 uint16_t output_effort_catch_level	= CATCH_SERVO_INIT_VALUE;
 
@@ -153,6 +172,9 @@ void init_pin();
 // Init the ModbusSerial
 void init_modbus();
 
+// Init the AX-12 motor
+void init_ax_motor();
+
 // Send the AX-12 motor position command
 void AX12_POS(int id, int data);
 
@@ -170,11 +192,8 @@ void setup()
 	// Setup the DEBUG tunnel via serial0(USB port)
 	Serial.begin(115200);
 
-	// For AI Motor communication
-	Serial1.begin(1000000);
-
-
-
+	/* Setup the AX-12 motor */
+	init_ax_motor();
 
 
 }
@@ -195,54 +214,146 @@ void loop()
 
 	/****************************************************/
 
-	// Slider is home OR opening
 	// ARM is home
 	// Effot catch level is 0
-	// Then Slide OPEN Valid
-	if ((output_slider_state == SliderState::HOME || output_slider_state == SliderState::OPENING) &&
-		output_arm_mode == ArmMode::ARM_HOME &&
-		output_effort_catch_level == 0 &&
-		input_slider_state == SliderStateCMD::OPEN) {
+	// Then Slide CMD Valid
+	if (output_arm_mode == ArmMode::ARM_HOME &&
+		  output_effort_catch_level == 0) {
 
 			// NOTE: When CW is HIGH Volatage, The slider will goto outside
-			// Setup the stepper CCW mode
-			digitalWrite(SLIDER_LEFT_STEPPER_CW, HIGH);
-			digitalWrite(SLIDER_RIGHT_STEPPER_CW, HIGH);
+			// NOTE: When CW is LOW Volatage, The slider will goto inside
 
-			// If left slider limit switch is trigger, then STOP left lisder opening
-			if( digitalRead(SLIDER_LEFT_STOP_SIGNAL_E) != HIGH) {
 
-				digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_LEFT_STEPPER_CLK, LOW);
+			// command is open left
+			if((input_slider_state & SLIDER_LEFT_CMD_MASK)  == SLIDER_LO_CMD
+				&&
+				(output_slider_state & SLIDER_LEFT_STATE_MASK) != SLIDER_L_OPENED) {
+
+				// Setup the stepper CCW mode
+				digitalWrite(SLIDER_LEFT_STEPPER_CW, HIGH);
+
+				// If left slider limit switch is trigger, then STOP left lisder opening
+				if( digitalRead(SLIDER_LEFT_STOP_SIGNAL_E) != HIGH) {
+
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, LOW);
+
+					// Clear Left slider bit state
+					output_slider_state &= ~SLIDER_LEFT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_L_OPENING;
+
+				}
+				else {
+
+					// Clear Right slider bit state
+					output_slider_state &= ~SLIDER_LEFT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_L_OPENED;
+
+				}
+
+			}
+			// command is close left
+			if((input_slider_state & SLIDER_LEFT_CMD_MASK)  == SLIDER_LC_CMD
+				&&
+				(output_slider_state & SLIDER_LEFT_STATE_MASK) != SLIDER_L_HOME) {
+
+				// Setup the stepper CCW mode
+				digitalWrite(SLIDER_LEFT_STEPPER_CW, LOW);
+
+				// If left slider limit switch is trigger, then STOP left slider closing
+				if( digitalRead(SLIDER_LEFT_STOP_SIGNAL_S) != HIGH) {
+
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_LEFT_STEPPER_CLK, LOW);
+
+					// Clear Left slider bit state
+					output_slider_state &= ~SLIDER_LEFT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_L_RETURNING;
+
+				}
+				else {
+
+					// Clear Right slider bit state
+					output_slider_state &= ~SLIDER_LEFT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_L_HOME;
+
+				}
 
 			}
 
-			// If right slider limit switch is trigger, then STOP right lisder opening
-			if( digitalRead(SLIDER_RIGHT_STOP_SIGNAL_E) != HIGH) {
+			// If not zero then command is open
+			if((input_slider_state & SLIDER_RIGHT_CMD_MASK) == SLIDER_RO_CMD
+			  &&
+			 	(output_slider_state & SLIDER_RIGHT_STATE_MASK) != SLIDER_R_OPENED) {
 
-				digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-				digitalWrite(SLIDER_RIGHT_STEPPER_CLK, LOW);
+				// Setup the stepper CCW mode
+				digitalWrite(SLIDER_RIGHT_STEPPER_CW, HIGH);
 
+				// If right slider limit switch is trigger, then STOP right slider opening
+				if( digitalRead(SLIDER_RIGHT_STOP_SIGNAL_E) != HIGH) {
+
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, LOW);
+
+					// Clear Left slider bit state
+					output_slider_state &= ~SLIDER_RIGHT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_R_OPENING;
+
+				}
+				else {
+
+					// Clear Right slider bit state
+					output_slider_state &= ~SLIDER_RIGHT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_R_OPENED;
+
+				}
 			}
 
-			// If all Limit switch is triggered.
-			// Then Slider status switch to OPENED
-			if (digitalRead(SLIDER_LEFT_STOP_SIGNAL_E) == HIGH &&
-			 		digitalRead(SLIDER_RIGHT_STOP_SIGNAL_E) == HIGH) {
+			if((input_slider_state & SLIDER_RIGHT_CMD_MASK) == SLIDER_RC_CMD
+				&&
+				(output_slider_state & SLIDER_RIGHT_STATE_MASK) != SLIDER_R_HOME) {
 
-				output_slider_state = SliderState::OPENED;
+				// Setup the stepper CCW mode
+				digitalWrite(SLIDER_RIGHT_STEPPER_CW, LOW);
 
-			}
-			else {
+				// If right slider limit switch is trigger, then STOP right slider closing
+				if( digitalRead(SLIDER_RIGHT_STOP_SIGNAL_S) != HIGH) {
 
-				output_slider_state = SliderState::OPENING;
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
+					digitalWrite(SLIDER_RIGHT_STEPPER_CLK, LOW);
 
+					// Clear Left slider bit state
+					output_slider_state &= ~SLIDER_RIGHT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_R_RETURNING;
+
+				}
+				else {
+
+					// Clear Right slider bit state
+				  output_slider_state &= ~SLIDER_RIGHT_STATE_MASK;
+					// Set Left slider bit state
+					output_slider_state |= SLIDER_R_HOME;
+
+				}
 			}
 
 			// Write the slider state to the register
@@ -276,9 +387,10 @@ void loop()
 			mb.Hreg(StateHoldRegister::ARM_MODE, output_arm_mode );
 	}
 
-	// Slider is opened
+	// Right Slider is opened
 	// Then ARM BUTTON POSE CMD Valid
-	if (output_slider_state == SliderState::OPENED &&
+	if ((output_slider_state & SLIDER_RIGHT_STATE_MASK) == SLIDER_R_OPENED
+		&&
 		input_arm_mode == ArmModeCMD::CMD_BUTTON_POSE ) {
 
 			AX12_POS(MOTOR_RIGHT_ARM2_ID, RIGHT_MOTOR2_BTN_POSE);
@@ -303,9 +415,10 @@ void loop()
 			mb.Hreg(StateHoldRegister::ARM_MODE, output_arm_mode );
 	}
 
-  // Slider is opened
+  // Right Slider is opened
 	// Then ARM FREE CONTROLL CMD Valid
-	if (output_slider_state == SliderState::OPENED &&
+	if ((output_slider_state & SLIDER_RIGHT_STATE_MASK) == SLIDER_R_OPENED
+		&&
 		input_arm_mode == ArmModeCMD::CMD_FREE_CONTROLL) {
 
 			AX12_POS(MOTOR_RIGHT_ARM2_ID, input_motor2_degree);
@@ -333,59 +446,6 @@ void loop()
 			output_effort_catch_level = input_effort_catch_level;
 			mb.Hreg(StateHoldRegister::EFFORT_CATCH_LEVEL, output_effort_catch_level );
 	}
-
-	// ARM is HOME
-	// Effort catch level is 0
-	// Slider is closing OR opened
-	// Then Slider CLOSE CMD Valid
-	if ((output_slider_state == SliderState::RETURNING || output_slider_state == SliderState::OPENED) &&
-			output_arm_mode == ArmMode::ARM_HOME &&
-			output_effort_catch_level == 0 &&
-			input_slider_state == SliderStateCMD::CLOSE) {
-
-		// NOTE: When CW is LOW Volatage, The slider will goto inside
-		// Setup the stepper CW mode
-		digitalWrite(SLIDER_LEFT_STEPPER_CW, LOW);
-		digitalWrite(SLIDER_RIGHT_STEPPER_CW, LOW);
-
-		// If left slider limit switch is trigger, then STOP left slider closing
-		if( digitalRead(SLIDER_LEFT_STOP_SIGNAL_S) != HIGH) {
-
-			digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_LEFT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_LEFT_STEPPER_CLK, LOW);
-
-		}
-
-		// If right slider limit switch is trigger, then STOP right slider closing
-		if( digitalRead(SLIDER_RIGHT_STOP_SIGNAL_S) != HIGH) {
-
-			digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_RIGHT_STEPPER_CLK, HIGH);
-			digitalWrite(SLIDER_RIGHT_STEPPER_CLK, LOW);
-
-		}
-
-		// If all Limit switch is triggered.
-		// Then Slider status switch to HOME
-		if (digitalRead(SLIDER_LEFT_STOP_SIGNAL_S) == HIGH &&
-				digitalRead(SLIDER_RIGHT_STOP_SIGNAL_S) == HIGH) {
-
-			output_slider_state = SliderState::HOME;
-		}
-		else {
-
-			output_slider_state = SliderState::RETURNING;
-
-		}
-
-		// Write the slider state to the register
-		mb.Hreg(StateHoldRegister::SLIDER_STATE, output_slider_state);
-	}
 }
 
 void init_modbus(){
@@ -410,13 +470,13 @@ void init_modbus(){
 	// Initial the register
 	mb.Hreg(LEFT_MOTOR1_DEGREE, LEFT_MOTOR1_INIT_VALUE);
 	mb.Hreg(LEFT_MOTOR2_DEGREE, LEFT_MOTOR2_INIT_VALUE);
-	mb.Hreg(SLIDER_STATE, SliderState::OPENED);
+	mb.Hreg(SLIDER_STATE, SLIDER_L_OPENED | SLIDER_R_OPENED );
 	// mb.Hreg(SLIDER_STATE, SliderState::HOME);
 	mb.Hreg(ARM_MODE, ArmMode::ARM_HOME);
 	mb.Hreg(EFFORT_CATCH_LEVEL, CATCH_SERVO_INIT_VALUE);
 	mb.Hreg(CMD_LEFT_MOTOR1_DEGREE, LEFT_MOTOR1_INIT_VALUE);
 	mb.Hreg(CMD_LEFT_MOTOR2_DEGREE, LEFT_MOTOR2_INIT_VALUE);
-	mb.Hreg(CMD_SLIDER_STATE, SliderStateCMD::CLOSE);
+	mb.Hreg(CMD_SLIDER_STATE, SLIDER_LC_CMD | SLIDER_RC_CMD );
 	// mb.Hreg(CMD_SLIDER_STATE, SliderStateCMD::OPEN);
 	mb.Hreg(CMD_ARM_MODE, ArmModeCMD::CMD_HOME);
 
@@ -453,6 +513,17 @@ void init_pin() {
 	// Enable stepper motor
 	digitalWrite(SLIDER_LEFT_STEPPER_EN, LOW);
 	digitalWrite(SLIDER_RIGHT_STEPPER_EN, LOW);
+
+}
+
+void init_ax_motor() {
+
+	// For AI Motor communication
+	Serial1.begin(1000000);
+
+	// let Left Motor go to home pose
+	AX12_POS(MOTOR_LEFT_ARM2_ID, LEFT_MOTOR2_INIT_VALUE);
+	AX12_POS(MOTOR_LEFT_ARM1_ID, LEFT_MOTOR1_INIT_VALUE);
 
 }
 
