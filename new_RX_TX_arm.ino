@@ -120,8 +120,8 @@ enum ArmModeCMD {
 #define LEFT_MOTOR1_MIN_VALUE					(0)
 #define LEFT_MOTOR2_MIN_VALUE					(0)
 
-#define CATCH_SERVO_INIT_VALUE				(0)
-#define CATCH_SERVO_FULL_OPEN_VALUE		(100)
+#define CATCH_SERVO_INIT_VALUE				(50)
+#define CATCH_SERVO_FULL_OPEN_VALUE		(82)
 #define CATCH_SERVO_FULL_CLOSE_VALUE	(130)
 
 #define RIGHT_MOTOR1_INIT_VALUE				(520)
@@ -133,9 +133,10 @@ enum ArmModeCMD {
 #define RIGHT_MOTOR1_MIN_VALUE				(520)
 #define RIGHT_MOTOR2_MIN_VALUE				(211)
 
-#define RIGHT_MOTOR1_BTN_POSE					(844)
+#define RIGHT_MOTOR1_BTN_POSE					(770)
 #define RIGHT_MOTOR2_BTN_POSE					(815)
 
+#define RIGHT_MOTOR2_CLOSE_CATCH_THRESHOLD	(750)
 
 /*******************************************************/
 
@@ -181,6 +182,9 @@ void AX12_POS(int id, int data);
 // Sync the local register and the local varivale
 void modbus_sync();
 
+// Set the Servo catch level
+void set_catch_level(int _catch_level);
+
 void setup()
 {
 	/* Setup the ModbusSerial */
@@ -217,8 +221,7 @@ void loop()
 	// ARM is home
 	// Effot catch level is 0
 	// Then Slide CMD Valid
-	if (output_arm_mode == ArmMode::ARM_HOME &&
-		  output_effort_catch_level == 0) {
+	if (output_arm_mode == ArmMode::ARM_HOME) {
 
 			// NOTE: When CW is HIGH Volatage, The slider will goto outside
 			// NOTE: When CW is LOW Volatage, The slider will goto inside
@@ -368,14 +371,8 @@ void loop()
 			AX12_POS(MOTOR_RIGHT_ARM2_ID, RIGHT_MOTOR2_INIT_VALUE);
 			AX12_POS(MOTOR_RIGHT_ARM1_ID, RIGHT_MOTOR1_INIT_VALUE);
 
-			// Remapping the servo value
-			int servo_value(0);
-			servo_value = map(CATCH_SERVO_INIT_VALUE,
-				0,
-				100,
-				CATCH_SERVO_FULL_OPEN_VALUE,
-				CATCH_SERVO_FULL_CLOSE_VALUE);
-			right_catch_servo.write(servo_value);
+			// Initial the servo catch value
+			set_catch_level(CATCH_SERVO_INIT_VALUE);
 
 			output_motor1_degree = RIGHT_MOTOR1_INIT_VALUE;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
@@ -396,14 +393,8 @@ void loop()
 			AX12_POS(MOTOR_RIGHT_ARM2_ID, RIGHT_MOTOR2_BTN_POSE);
 			AX12_POS(MOTOR_RIGHT_ARM1_ID, RIGHT_MOTOR1_BTN_POSE);
 
-			// Remapping the servo value
-			int servo_value(0);
-			servo_value = map(CATCH_SERVO_INIT_VALUE,
-				0,
-				100,
-				CATCH_SERVO_FULL_OPEN_VALUE,
-				CATCH_SERVO_FULL_CLOSE_VALUE);
-			right_catch_servo.write(servo_value);
+			// Initial the servo catch value
+			set_catch_level(CATCH_SERVO_INIT_VALUE);
 
 			output_motor1_degree = RIGHT_MOTOR1_BTN_POSE;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
@@ -424,16 +415,6 @@ void loop()
 			AX12_POS(MOTOR_RIGHT_ARM2_ID, input_motor2_degree);
 			AX12_POS(MOTOR_RIGHT_ARM1_ID, input_motor1_degree);
 
-
-			// Remapping the servo value
-			int servo_value(0);
-			servo_value = map(input_effort_catch_level,
-				0,
-				100,
-				CATCH_SERVO_FULL_OPEN_VALUE,
-				CATCH_SERVO_FULL_CLOSE_VALUE);
-			right_catch_servo.write(servo_value);
-
 			output_motor1_degree = input_motor1_degree;
 			mb.Hreg(StateHoldRegister::LEFT_MOTOR1_DEGREE, output_motor1_degree );
 
@@ -442,6 +423,9 @@ void loop()
 
 			output_arm_mode = ArmMode::FREE_CONTROLL;
 			mb.Hreg(StateHoldRegister::ARM_MODE, output_arm_mode );
+
+			// Set the servo catch value
+			set_catch_level(input_effort_catch_level);
 
 			output_effort_catch_level = input_effort_catch_level;
 			mb.Hreg(StateHoldRegister::EFFORT_CATCH_LEVEL, output_effort_catch_level );
@@ -577,6 +561,20 @@ void AX12_POS(int id, int data)
 #endif // DEBUG
 }
 
+void set_catch_level(int _catch_level) {
+	int servo_value(0);
+
+	if(output_motor2_degree > RIGHT_MOTOR2_CLOSE_CATCH_THRESHOLD)
+		_catch_level = CATCH_SERVO_INIT_VALUE;
+
+	servo_value = map(_catch_level,
+		0,
+		100,
+		CATCH_SERVO_FULL_OPEN_VALUE,
+		CATCH_SERVO_FULL_CLOSE_VALUE);
+		right_catch_servo.write(servo_value);
+	return;
+}
 
 // // Trigger Modbus when Serial3 interrupt
 // void serialEvent3() {
